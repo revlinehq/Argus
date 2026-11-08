@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { dark } from "@clerk/themes";
 import { ConvexClientProvider } from "./providers";
@@ -7,7 +7,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+// Inter: the body face Twitch uses (its headline face, Roobert, is commercial).
+const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 // Render per request: ClerkProvider needs keys (or keyless dev mode) at render
@@ -23,7 +24,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <ClerkProvider appearance={{ baseTheme: dark }}>
-      <html lang="en" className={`dark ${geistSans.variable} ${geistMono.variable}`}>
+      <html lang="en" className={`dark ${inter.variable} ${geistMono.variable}`}>
         <body className="min-h-dvh antialiased">
           <ConvexClientProvider>
             <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
