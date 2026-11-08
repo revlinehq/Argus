@@ -78,6 +78,19 @@ export const setAutoClip = mutation({
   },
 });
 
+/** When the stream worker last checked in (ms), or null if never. */
+export const workerLastSeen = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    const w = await ctx.db
+      .query("workers")
+      .withIndex("by_name", (q) => q.eq("name", "default"))
+      .unique();
+    return w?.lastSeen ?? null;
+  },
+});
+
 export const _ownedBy = internalQuery({
   args: { id: v.id("streams"), userId: v.string() },
   handler: async (ctx, { id, userId }) => {
@@ -97,15 +110,19 @@ export const _ownedBy = internalQuery({
  */
 export const viewerToken = action({
   args: { id: v.id("streams") },
-  handler: async (ctx, { id }) => {
+  handler: async (ctx, { id }): Promise<{ url: string; exp: number } | null> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not signed in");
-    const info = await ctx.runQuery(internal.streams._ownedBy, {
+    const info: { wsUrl: string | null; workerLastSeen: number } | null = await ctx.runQuery(
+      internal.streams._ownedBy,
+      {
       id,
-      userId: identity.subject,
-    });
+        userId: identity.subject,
+      },
+    );
     if (!info) throw new Error("Not found");
-    if (!info.wsUrl) return null;
+    // Worker heartbeats every 15s; treat >60s silence as offline.
+    if (!info.wsUrl || Date.now() - info.workerLastSeen > 60_000) return null;
     const secret = process.env.WORKER_SECRET;
     if (!secret) throw new Error("WORKER_SECRET not set on Convex");
     const exp = Date.now() + 10 * 60_000;

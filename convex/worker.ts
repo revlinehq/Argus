@@ -104,6 +104,22 @@ export const claimClip = mutation({
   },
 });
 
+/** On worker boot: anything still "processing" was orphaned by the previous run. */
+export const failOrphanedClips = mutation({
+  args: { secret },
+  handler: async (ctx, args) => {
+    checkWorkerSecret(args.secret);
+    const stuck = await ctx.db
+      .query("clips")
+      .withIndex("by_status", (q) => q.eq("status", "processing"))
+      .collect();
+    for (const c of stuck) {
+      await ctx.db.patch(c._id, { status: "failed", error: "Worker restarted mid-clip" });
+    }
+    return stuck.length;
+  },
+});
+
 export const generateUploadUrl = mutation({
   args: { secret },
   handler: async (ctx, args) => {
