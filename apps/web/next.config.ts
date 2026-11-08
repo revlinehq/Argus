@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
   // npm workspaces: trace files from the repo root (also picks up ../../convex).
   outputFileTracingRoot: path.join(__dirname, "../.."),
   // Let other machines (e.g. over Tailscale) load dev assets / HMR.
-  allowedDevOrigins: ["100.112.192.49", "sonic-gamingpc", "*.ts.net"],
+  // Comma-separated hosts, e.g. ALLOWED_DEV_ORIGINS=100.64.0.1,my-pc,*.ts.net
+  allowedDevOrigins: process.env.ALLOWED_DEV_ORIGINS?.split(",").map((s) => s.trim()).filter(Boolean),
 };
 
 export default nextConfig;
