@@ -44,3 +44,5 @@ export function parseStreamUrl(input: string): {
 export const CLIP_MIN_SECONDS = 5;
 export const CLIP_MAX_SECONDS = 120;
 export const MAX_STREAMS_PER_USER = 6;
+/** Must match the worker's BUFFER_SECONDS; older moments can't be (re)clipped. */
+export const BUFFER_MS = 5 * 60_000;

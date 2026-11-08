@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireUser } from "./auth";
-import { CLIP_MAX_SECONDS, CLIP_MIN_SECONDS } from "./lib";
+import { BUFFER_MS, CLIP_MAX_SECONDS, CLIP_MIN_SECONDS } from "./lib";
 
 export const list = query({
   args: {},
@@ -37,7 +37,27 @@ export const request = mutation({
       status: "pending",
       reason: "manual",
       seconds: secs,
+      stage: "queued",
+      endAt: Date.now(),
     });
+  },
+});
+
+/** Re-run a failed clip for the same moment, if it's still in the buffer. */
+export const retry = mutation({
+  args: { id: v.id("clips") },
+  handler: async (ctx, { id }) => {
+    const userId = await requireUser(ctx);
+    const clip = await ctx.db.get(id);
+    if (!clip || clip.userId !== userId) throw new Error("Not found");
+    if (clip.status !== "failed") throw new Error("Only failed clips can be retried");
+    const endAt = clip.endAt ?? clip._creationTime;
+    if (Date.now() - endAt + clip.seconds * 1000 > BUFFER_MS) {
+      throw new Error("That moment has left the 5-minute buffer");
+    }
+    const stream = await ctx.db.get(clip.streamId);
+    if (!stream || !stream.enabled) throw new Error("Stream is no longer being watched");
+    await ctx.db.patch(id, { status: "pending", stage: "queued", error: undefined });
   },
 });
 

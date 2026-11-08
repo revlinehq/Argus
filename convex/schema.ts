@@ -23,6 +23,9 @@ export const clipStatus = v.union(
   v.literal("failed"),
 );
 
+/** Progress within "processing", reported by the worker. */
+export const clipStage = v.union(v.literal("queued"), v.literal("building"), v.literal("uploading"));
+
 export const clipReason = v.union(v.literal("manual"), v.literal("chat_spike"));
 
 export default defineSchema({
@@ -56,6 +59,9 @@ export default defineSchema({
     thumbId: v.optional(v.id("_storage")),
     duration: v.optional(v.number()),
     error: v.optional(v.string()),
+    stage: v.optional(clipStage),
+    /** Wall-clock moment the clip ends at (click time / spike time). */
+    endAt: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_status", ["status"])

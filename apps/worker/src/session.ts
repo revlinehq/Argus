@@ -123,10 +123,11 @@ export class StreamSession {
       this.spikeTimer = null;
       if (this.stopped || !this.stream.autoClip || this.status !== "live") return;
       try {
-        const id = await worker.autoClip(this.id, AUTO_CLIP_SECONDS, `chat spike: ${rate} msg/min`);
+        const endAt = Date.now();
+        const id = await worker.autoClip(this.id, AUTO_CLIP_SECONDS, `chat spike: ${rate} msg/min`, endAt);
         if (id) {
           this.log.info(`auto clip ${id} (${rate} msg/min)`);
-          this.clipper.enqueue({ id, streamId: this.id, seconds: AUTO_CLIP_SECONDS });
+          this.clipper.enqueue({ id, streamId: this.id, seconds: AUTO_CLIP_SECONDS, endAt });
         }
       } catch (e) {
         this.log.warn(`autoClip: ${errMsg(e)}`);

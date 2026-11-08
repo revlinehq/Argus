@@ -22,7 +22,8 @@ export type ActiveStream = {
   autoClip: boolean;
 };
 
-export type PendingClip = { _id: string; streamId: string; seconds: number };
+export type PendingClip = { _id: string; streamId: string; seconds: number; endAt?: number };
+export type ClipStage = "queued" | "building" | "uploading";
 
 export type StreamPatch = {
   status?: "starting" | "live" | "offline" | "error";
@@ -39,10 +40,12 @@ export const worker = {
   heartbeat: () => convex.mutation(api.worker.heartbeat, { secret, wsUrl: config.publicWsUrl }),
   updateStream: (id: string, patch: StreamPatch) =>
     convex.mutation(api.worker.updateStream, { secret, id: sid(id), ...patch }),
-  autoClip: (streamId: string, seconds: number, note: string): Promise<string | null> =>
-    convex.mutation(api.worker.autoClip, { secret, streamId: sid(streamId), seconds, note }),
+  autoClip: (streamId: string, seconds: number, note: string, endAt: number): Promise<string | null> =>
+    convex.mutation(api.worker.autoClip, { secret, streamId: sid(streamId), seconds, note, endAt }),
   claimClip: (id: string): Promise<boolean> => convex.mutation(api.worker.claimClip, { secret, id: cid(id) }),
   failOrphanedClips: (): Promise<number> => convex.mutation(api.worker.failOrphanedClips, { secret }),
+  setClipStage: (id: string, stage: ClipStage) =>
+    convex.mutation(api.worker.setClipStage, { secret, id: cid(id), stage }),
   generateUploadUrl: (): Promise<string> => convex.mutation(api.worker.generateUploadUrl, { secret }),
   completeClip: (id: string, videoId: string, thumbId: string | undefined, duration: number) =>
     convex.mutation(api.worker.completeClip, {

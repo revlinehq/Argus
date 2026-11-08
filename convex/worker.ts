@@ -5,7 +5,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { checkWorkerSecret } from "./auth";
-import { streamStatus } from "./schema";
+import { clipStage, streamStatus } from "./schema";
 
 const secret = v.string();
 
@@ -75,7 +75,7 @@ export const updateStream = mutation({
 
 /** Worker detected a highlight (chat spike) → create + claim a clip in one go. */
 export const autoClip = mutation({
-  args: { secret, streamId: v.id("streams"), seconds: v.number(), note: v.string() },
+  args: { secret, streamId: v.id("streams"), seconds: v.number(), note: v.string(), endAt: v.number() },
   handler: async (ctx, args) => {
     checkWorkerSecret(args.secret);
     const stream = await ctx.db.get(args.streamId);
@@ -88,6 +88,8 @@ export const autoClip = mutation({
       reason: "chat_spike",
       seconds: args.seconds,
       note: args.note,
+      stage: "building",
+      endAt: args.endAt, // worker's clock, same value it clips with
     });
   },
 });
@@ -114,9 +116,18 @@ export const failOrphanedClips = mutation({
       .withIndex("by_status", (q) => q.eq("status", "processing"))
       .collect();
     for (const c of stuck) {
-      await ctx.db.patch(c._id, { status: "failed", error: "Worker restarted mid-clip" });
+      await ctx.db.patch(c._id, { status: "failed", stage: undefined, error: "Worker restarted mid-clip" });
     }
     return stuck.length;
+  },
+});
+
+export const setClipStage = mutation({
+  args: { secret, id: v.id("clips"), stage: clipStage },
+  handler: async (ctx, args) => {
+    checkWorkerSecret(args.secret);
+    const clip = await ctx.db.get(args.id);
+    if (clip && clip.status === "processing") await ctx.db.patch(args.id, { stage: args.stage });
   },
 });
 
@@ -145,7 +156,7 @@ export const completeClip = mutation({
       if (rest.thumbId) await ctx.storage.delete(rest.thumbId);
       return;
     }
-    await ctx.db.patch(id, { ...rest, status: "ready" });
+    await ctx.db.patch(id, { ...rest, status: "ready", stage: undefined });
   },
 });
 
@@ -154,6 +165,6 @@ export const failClip = mutation({
   handler: async (ctx, args) => {
     checkWorkerSecret(args.secret);
     const clip = await ctx.db.get(args.id);
-    if (clip) await ctx.db.patch(args.id, { status: "failed", error: args.error });
+    if (clip) await ctx.db.patch(args.id, { status: "failed", stage: undefined, error: args.error });
   },
 });

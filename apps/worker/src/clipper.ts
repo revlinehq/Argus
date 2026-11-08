@@ -2,23 +2,27 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Capture, Segment } from "./capture.js";
 import { config } from "./config.js";
-import { worker, type PendingClip } from "./convex.js";
+import { worker, type ClipStage, type PendingClip } from "./convex.js";
 import { errMsg, logger } from "./log.js";
 import { run } from "./proc.js";
 
 const log = logger("clip");
 const MAX_CONCURRENT = 2;
+const END_SLACK_MS = 4_000;
 
-type Job = { id: string; streamId: string; seconds: number };
+type Job = { id: string; streamId: string; seconds: number; endAt?: number };
 
 /**
  * Pick the newest segments covering `seconds`. Live HLS input lands in bursts,
  * so file mtimes don't reflect media time — count by nominal segment length
  * instead (Twitch/Kick/YouTube cut on 2s keyframes, matching -segment_time).
  */
-export function pickSegments(segs: Segment[], seconds: number): Segment[] {
+export function pickSegments(segs: Segment[], seconds: number, endAt?: number): Segment[] {
   const n = Math.max(1, Math.ceil(seconds / config.segmentSeconds));
-  return segs.slice(-n);
+  // Clip the moment that was asked for, not "now": keep segments written by
+  // endAt plus slack, since live HLS lands in bursts a few seconds late.
+  const upTo = endAt ? segs.filter((s) => s.mtime <= endAt + END_SLACK_MS) : segs;
+  return upTo.slice(-n);
 }
 
 async function upload(file: string, contentType: string): Promise<string> {
@@ -86,7 +90,7 @@ export class Clipper {
         this.known.delete(c._id);
         continue;
       }
-      this.enqueue({ id: c._id, streamId: c.streamId, seconds: c.seconds });
+      this.enqueue({ id: c._id, streamId: c.streamId, seconds: c.seconds, endAt: c.endAt });
     }
   }
 
@@ -114,9 +118,12 @@ export class Clipper {
     try {
       const capture = this.getCapture(job.streamId);
       if (!capture) throw new Error("Stream is not being recorded by the worker");
-      const segs = pickSegments(await capture.segments(), job.seconds);
-      if (segs.length === 0) throw new Error("No buffered video yet — is the stream live?");
+      const segs = pickSegments(await capture.segments(), job.seconds, job.endAt);
+      if (segs.length === 0) throw new Error("No buffered video for that moment");
+      const stage = (s: ClipStage) => worker.setClipStage(job.id, s).catch(() => {});
+      await stage("building");
       const { out, thumb, duration } = await buildClip(segs, workDir);
+      await stage("uploading");
       const videoId = await upload(out, "video/mp4");
       const thumbId = thumb ? await upload(thumb, "image/jpeg") : undefined;
       await worker.completeClip(job.id, videoId, thumbId, Math.round(duration * 10) / 10);
