@@ -10,6 +10,17 @@ const MAX_BUFFERED = 1024 * 1024; // drop frames for clients this far behind
 const clients = new Map<string, Set<WebSocket>>();
 const latest = new Map<string, Buffer>();
 
+/** Notified whenever a stream's viewer count changes (drives browser wake/sleep). */
+let onViewers: (streamId: string, count: number) => void = () => {};
+export function setViewerListener(fn: typeof onViewers) {
+  onViewers = fn;
+}
+
+/** Browser went to sleep: forget its last frame so nobody sees a stale one. */
+export function clearFrame(streamId: string) {
+  latest.delete(streamId);
+}
+
 /** Push a JPEG frame to every viewer of a stream (and remember it for new viewers). */
 export function broadcastFrame(streamId: string, jpeg: Buffer) {
   latest.set(streamId, jpeg);
@@ -39,7 +50,7 @@ export function verifyToken(streamId: string, token: string | null): boolean {
   return timingSafeEqual(expected, Buffer.from(hex, "hex"));
 }
 
-export type StreamInfo = { id: string; status: string };
+export type StreamInfo = { id: string; status: string; browser: boolean };
 
 export function startViewerServer(getStreams: () => StreamInfo[]) {
   const server = http.createServer((req, res) => {
@@ -66,7 +77,13 @@ export function startViewerServer(getStreams: () => StreamInfo[]) {
       set.add(ws);
       const frame = latest.get(streamId);
       if (frame) ws.send(frame);
-      ws.on("close", () => set.delete(ws));
+      else ws.send(JSON.stringify({ state: "waking" })); // browser is booting
+      onViewers(streamId, set.size);
+      ws.on("close", () => {
+        set.delete(ws);
+        // Ask the map, not `set`: dropStream may have replaced it meanwhile.
+        onViewers(streamId, viewerCount(streamId));
+      });
       ws.on("error", () => ws.terminate());
     });
   });

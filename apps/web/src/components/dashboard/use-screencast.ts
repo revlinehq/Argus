@@ -20,6 +20,18 @@ const OFFLINE_RETRY_MS = 15_000;
 const MAX_BACKOFF_MS = 30_000;
 const STALE_AFTER_MS = 3_000;
 
+/** True while the page is visible; a hidden tab lets the worker's browser sleep. */
+function usePageVisible() {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    const update = () => setVisible(document.visibilityState === "visible");
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+  return visible;
+}
+
 /**
  * Streams JPEG frames from the worker's screencast WebSocket into a canvas.
  * Frames are drawn imperatively (no React state per frame); `receiving` is
@@ -35,10 +47,20 @@ export function useScreencast(id: StreamId, active: boolean) {
   const [error, setError] = useState<string | null>(null);
   const [receiving, setReceiving] = useState(false);
   const [hasFrame, setHasFrame] = useState(false);
+  const [waking, setWaking] = useState(false);
+  const wakingRef = useRef(false);
   const lastFrameAt = useRef(0);
+  const visible = usePageVisible();
+  const connected = active && visible;
 
   useEffect(() => {
-    if (!active) {
+    const setWake = (v: boolean) => {
+      if (wakingRef.current === v) return;
+      wakingRef.current = v;
+      setWaking(v);
+    };
+    setWake(false);
+    if (!connected) {
       setState("idle");
       return;
     }
@@ -136,7 +158,16 @@ export function useScreencast(id: StreamId, active: boolean) {
         setState("open");
       };
       sock.onmessage = (ev) => {
-        if (!(ev.data instanceof Blob)) return; // ignore text control messages
+        if (typeof ev.data === "string") {
+          // Worker's browser was asleep and is booting for us.
+          if (ev.data.includes('"waking"')) {
+            lastFrameAt.current = 0;
+            setHasFrame(false);
+            setWake(true);
+          }
+          return;
+        }
+        setWake(false); // no-op after the first frame (ref guard)
         attempt = 0;
         lastFrameAt.current = Date.now();
         void draw(ev.data);
@@ -147,6 +178,7 @@ export function useScreencast(id: StreamId, active: boolean) {
       sock.onclose = () => {
         if (cancelled || ws !== sock) return;
         ws = null;
+        setWake(false);
         setState("connecting");
         // Every reconnect fetches a fresh token, so auth rejections recover too.
         scheduleRetry();
@@ -166,7 +198,7 @@ export function useScreencast(id: StreamId, active: boolean) {
       clearTimers();
       closeSocket();
     };
-  }, [id, active]);
+  }, [id, connected]);
 
   // Sample frame liveness once a second rather than re-rendering per frame.
   useEffect(() => {
@@ -178,5 +210,5 @@ export function useScreencast(id: StreamId, active: boolean) {
     return () => clearInterval(t);
   }, []);
 
-  return { canvasRef, state, error, receiving, hasFrame };
+  return { canvasRef, state, error, receiving, hasFrame, waking };
 }

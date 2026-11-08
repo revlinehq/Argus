@@ -48,7 +48,7 @@ const DURATIONS = [15, 30, 60, 90] as const;
 
 export function StreamTile({ stream }: { stream: StreamDoc }) {
   const active = stream.enabled && stream.status !== "stopped";
-  const { canvasRef, state, error, receiving, hasFrame } = useScreencast(stream._id, active);
+  const { canvasRef, state, error, receiving, hasFrame, waking } = useScreencast(stream._id, active);
 
   const requestClip = useMutation(api.clips.request);
   const setEnabled = useMutation(api.streams.setEnabled);
@@ -93,7 +93,14 @@ export function StreamTile({ stream }: { stream: StreamDoc }) {
           }`}
         />
         {!(hasFrame && receiving) && (
-          <Placeholder state={state} active={active} hasFrame={hasFrame} error={error} stream={stream} />
+          <Placeholder
+            state={state}
+            active={active}
+            hasFrame={hasFrame}
+            waking={waking}
+            error={error}
+            stream={stream}
+          />
         )}
 
         {/* top overlay */}
@@ -239,12 +246,14 @@ function Placeholder({
   state,
   active,
   hasFrame,
+  waking,
   error,
   stream,
 }: {
   state: ScreencastState;
   active: boolean;
   hasFrame: boolean;
+  waking: boolean;
   error: string | null;
   stream: StreamDoc;
 }) {
@@ -265,6 +274,9 @@ function Placeholder({
   } else if (stream.status === "offline") {
     title = "Channel offline";
     detail = "The worker will check again periodically.";
+  } else if (waking) {
+    title = "Waking browser";
+    detail = "The cloud browser sleeps when nobody is watching. Clipping never stops.";
   } else if (hasFrame) {
     title = "Frames stalled";
     detail = "Waiting for the browser to send new frames.";

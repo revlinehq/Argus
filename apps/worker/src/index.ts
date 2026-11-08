@@ -4,15 +4,16 @@ import { convex, worker, type ActiveStream } from "./convex.js";
 import { closeBrowser } from "./browser.js";
 import { errMsg, logger } from "./log.js";
 import { StreamSession } from "./session.js";
-import { startViewerServer } from "./viewers.js";
+import { setViewerListener, startViewerServer, viewerCount } from "./viewers.js";
 
 const log = logger("worker");
 const sessions = new Map<string, StreamSession>();
 const clipper = new Clipper((id) => sessions.get(id)?.capture);
 
 const server = startViewerServer(() =>
-  [...sessions.values()].map((s) => ({ id: s.id, status: s.status })),
+  [...sessions.values()].map((s) => ({ id: s.id, status: s.status, browser: s.browserAwake })),
 );
+setViewerListener((id, count) => sessions.get(id)?.setViewers(count));
 
 /** Make running sessions match the enabled streams in Convex. */
 function reconcile(streams: ActiveStream[]) {
@@ -31,6 +32,7 @@ function reconcile(streams: ActiveStream[]) {
     const session = new StreamSession(s, clipper);
     sessions.set(s._id, session);
     session.start().catch((e) => log.error(`start ${s.channel}: ${errMsg(e)}`));
+    session.setViewers(viewerCount(s._id));
   }
   log.info(`${sessions.size} active stream(s)`);
 }

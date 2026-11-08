@@ -5,25 +5,52 @@ const log = logger("browser");
 let browserPromise: Promise<Browser> | null = null;
 let closing = false;
 
-/** One shared headless Chromium for all streams, relaunched if it dies. */
+const IDLE_CLOSE_MS = 15_000;
+let openViews = 0;
+let idleTimer: NodeJS.Timeout | null = null;
+
+/** One shared headless Chromium for all awake views, relaunched if it dies. */
 function getBrowser(): Promise<Browser> {
   if (!browserPromise) {
-    browserPromise = chromium
+    const promise: Promise<Browser> = chromium
       .launch({ headless: true, args: ["--autoplay-policy=no-user-gesture-required", "--mute-audio"] })
       .then((b) => {
         log.info("chromium launched");
         b.on("disconnected", () => {
+          // Ignore if we closed it on purpose (idle) and already moved on.
+          if (browserPromise !== promise) return;
           if (!closing) log.warn("chromium disconnected");
           browserPromise = null;
         });
         return b;
       })
       .catch((e) => {
-        browserPromise = null;
+        if (browserPromise === promise) browserPromise = null;
         throw e;
       });
+    browserPromise = promise;
   }
   return browserPromise;
+}
+
+/** Views hold a reference; when none are awake, Chromium itself shuts down. */
+function acquireBrowser() {
+  openViews++;
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
+}
+
+function releaseBrowser() {
+  openViews = Math.max(0, openViews - 1);
+  if (openViews > 0 || idleTimer) return;
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    if (openViews > 0 || !browserPromise) return;
+    const p = browserPromise;
+    browserPromise = null;
+    log.info("no awake views; closing chromium");
+    void p.then((b) => b.close()).catch(() => {});
+  }, IDLE_CLOSE_MS);
 }
 
 export async function closeBrowser() {
@@ -45,7 +72,6 @@ type Opts = {
   streamId: string;
   url: string;
   onFrame: (jpeg: Buffer) => void;
-  onTitle: (title: string) => void;
 };
 
 /**
@@ -56,15 +82,17 @@ export class BrowserView {
   private ctx: BrowserContext | null = null;
   private stopped = false;
   private retryTimer: NodeJS.Timeout | null = null;
-  private titleTimer: NodeJS.Timeout | null = null;
-  private lastTitle = "";
   private log: Logger;
 
   constructor(private opts: Opts) {
     this.log = logger(`view:${opts.streamId.slice(-6)}`);
   }
 
+  private holding = false;
+
   start() {
+    acquireBrowser();
+    this.holding = true;
     void this.open();
   }
 
@@ -86,8 +114,6 @@ export class BrowserView {
       await page.goto(this.opts.url, { waitUntil: "domcontentloaded", timeout: 45_000 });
       this.log.info("page loaded");
       void this.dismissGates(page);
-      this.titleTimer = setInterval(() => void this.readTitle(page), 30_000);
-      setTimeout(() => void this.readTitle(page), 8_000);
     } catch (e) {
       this.restart(`open failed: ${errMsg(e)}`);
     }
@@ -130,23 +156,6 @@ export class BrowserView {
     }
   }
 
-  private async readTitle(page: Page) {
-    try {
-      const streamTitle = await page
-        .locator('[data-a-target="stream-title"]')
-        .first()
-        .textContent({ timeout: 1000 })
-        .catch(() => null);
-      const title = (streamTitle || (await page.title())).trim();
-      if (title && title !== this.lastTitle) {
-        this.lastTitle = title;
-        this.opts.onTitle(title.slice(0, 200));
-      }
-    } catch {
-      /* page gone; restart handles it */
-    }
-  }
-
   private restart(reason: string) {
     if (this.stopped || this.retryTimer) return;
     this.log.warn(`${reason}; recreating in 10s`);
@@ -158,8 +167,6 @@ export class BrowserView {
   }
 
   private async teardown() {
-    if (this.titleTimer) clearInterval(this.titleTimer);
-    this.titleTimer = null;
     const ctx = this.ctx;
     this.ctx = null;
     await ctx?.close().catch(() => {});
@@ -169,5 +176,7 @@ export class BrowserView {
     this.stopped = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     await this.teardown();
+    if (this.holding) releaseBrowser();
+    this.holding = false;
   }
 }

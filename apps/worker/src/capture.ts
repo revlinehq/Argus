@@ -12,8 +12,12 @@ type Opts = {
   url: string;
   onStatus: (status: CaptureStatus, error?: string) => void;
   onBuffered: (seconds: number) => void;
+  onTitle?: (title: string) => void;
+  /** Twitch keeps the stream title in yt-dlp's `description`. */
+  titleFromDescription?: boolean;
 };
 
+const TITLE_REFRESH_MS = 3 * 60_000;
 const SEG_RE = /^seg_(\d{6})\.ts$/;
 const OFFLINE_RETRY_MS = 60_000;
 const STALL_MS = 30_000;
@@ -32,6 +36,7 @@ export class Capture {
   private backoffMs = 2000;
   private retryTimer: NodeJS.Timeout | null = null;
   private tick: NodeJS.Timeout | null = null;
+  private titleTimer: NodeJS.Timeout | null = null;
   private lastSegCount = 0;
   private lastNewSegAt = 0;
   private log: Logger;
@@ -46,6 +51,8 @@ export class Capture {
     await fs.rm(this.dir, { recursive: true, force: true });
     await fs.mkdir(this.dir, { recursive: true });
     this.tick = setInterval(() => void this.housekeep(), 2000);
+    // ffmpeg can run for hours on one resolve; refresh the title separately.
+    this.titleTimer = setInterval(() => void this.refreshTitle(), TITLE_REFRESH_MS);
     void this.launch();
   }
 
@@ -63,9 +70,16 @@ export class Capture {
     if (this.stopped) return;
     let hls: string;
     try {
-      const out = await run("yt-dlp", ["-g", "-f", "best", "--no-warnings", this.opts.url], 60_000);
-      hls = out.trim().split("\n")[0];
-      if (!hls) throw new Error("yt-dlp returned no URL");
+      // Line 1: {title, description} as one JSON line; line 2: the HLS URL.
+      const out = await run(
+        "yt-dlp",
+        ["-f", "best", "--no-warnings", "--print", "%(.{title,description})j", "--print", "urls", this.opts.url],
+        60_000,
+      );
+      const [meta, url] = out.trim().split("\n");
+      hls = url?.trim() ?? "";
+      if (!hls.startsWith("http")) throw new Error("yt-dlp returned no URL");
+      this.reportTitle(meta);
     } catch (e) {
       const msg = errMsg(e);
       this.log.info(`not live (${lastLine(msg).slice(0, 120)}); retry in 60s`);
@@ -108,6 +122,27 @@ export class Capture {
       else this.setStatus("error", `capture stopped: ${why}`);
       this.schedule(this.backoffMs);
     });
+  }
+
+  private async refreshTitle() {
+    if (this.stopped || this.status !== "live") return;
+    const out = await run(
+      "yt-dlp",
+      ["--no-warnings", "--skip-download", "--print", "%(.{title,description})j", this.opts.url],
+      60_000,
+    ).catch(() => null);
+    if (out) this.reportTitle(out.trim().split("\n")[0]);
+  }
+
+  private reportTitle(metaJson: string | undefined) {
+    try {
+      const m = JSON.parse(metaJson ?? "{}") as { title?: string; description?: string };
+      const raw = this.opts.titleFromDescription ? m.description || m.title : m.title;
+      const title = raw?.replace(/\s*\(live\)\s*\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/, "").trim();
+      if (title) this.opts.onTitle?.(title.slice(0, 200));
+    } catch {
+      /* metadata is cosmetic */
+    }
   }
 
   private schedule(ms: number) {
@@ -173,6 +208,7 @@ export class Capture {
     this.stopped = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.tick) clearInterval(this.tick);
+    if (this.titleTimer) clearInterval(this.titleTimer);
     const p = this.proc;
     if (p) {
       const exited = new Promise<void>((r) => p.once("close", () => r()));

@@ -4,18 +4,22 @@ import { ChatMonitor } from "./chat.js";
 import type { Clipper } from "./clipper.js";
 import { worker, type ActiveStream, type StreamPatch } from "./convex.js";
 import { errMsg, logger, type Logger } from "./log.js";
-import { broadcastFrame, dropStream } from "./viewers.js";
+import { broadcastFrame, clearFrame, dropStream } from "./viewers.js";
 
 const MIN_REPORT_MS = 5_000;
 const SPIKE_DELAY_MS = 10_000;
 const AUTO_CLIP_SECONDS = 30;
+/** Keep the browser around this long after the last viewer leaves (tab flips, reloads). */
+const SLEEP_AFTER_MS = 30_000;
 
 /** Everything the worker runs for one enabled stream. */
 export class StreamSession {
   readonly id: string;
   readonly capture: Capture;
   status: CaptureStatus = "starting";
-  private view: BrowserView;
+  /** Only exists while someone is watching the tile; capture/chat run regardless. */
+  private view: BrowserView | null = null;
+  private sleepTimer: NodeJS.Timeout | null = null;
   private chat: ChatMonitor | null = null;
   private pending: StreamPatch = {};
   private lastReport = 0;
@@ -30,14 +34,6 @@ export class StreamSession {
   ) {
     this.id = stream._id;
     this.log = logger(`session:${stream.channel}`);
-    this.view = new BrowserView({
-      streamId: this.id,
-      url: stream.url,
-      onFrame: (jpeg) => {
-        if (!this.stopped) broadcastFrame(this.id, jpeg);
-      },
-      onTitle: (title) => this.report({ title }),
-    });
     this.capture = new Capture({
       streamId: this.id,
       url: stream.url,
@@ -46,6 +42,8 @@ export class StreamSession {
         this.report({ status, error: status === "live" ? null : (error ?? null) }, true);
       },
       onBuffered: (bufferedSeconds) => this.report({ bufferedSeconds }),
+      onTitle: (title) => this.report({ title }),
+      titleFromDescription: stream.platform === "twitch",
     });
     if (stream.platform === "twitch") {
       this.chat = new ChatMonitor({
@@ -61,8 +59,42 @@ export class StreamSession {
     this.log.info(`starting ${this.stream.url}`);
     this.report({ status: "starting", error: null }, true);
     await this.capture.start();
-    this.view.start();
     this.chat?.start();
+  }
+
+  get browserAwake() {
+    return this.view !== null;
+  }
+
+  /** Wake the browser for the first viewer; sleep it a while after the last leaves. */
+  setViewers(count: number) {
+    if (this.stopped) return;
+    if (count > 0) {
+      if (this.sleepTimer) clearTimeout(this.sleepTimer);
+      this.sleepTimer = null;
+      if (!this.view) {
+        this.log.info("viewer connected; waking browser");
+        const view: BrowserView = new BrowserView({
+          streamId: this.id,
+          url: this.stream.url,
+          // Drop frames from a view that's been put to sleep (still closing).
+          onFrame: (jpeg) => {
+            if (!this.stopped && this.view === view) broadcastFrame(this.id, jpeg);
+          },
+        });
+        this.view = view;
+        view.start();
+      }
+    } else if (this.view && !this.sleepTimer) {
+      this.sleepTimer = setTimeout(() => {
+        this.sleepTimer = null;
+        const view = this.view;
+        this.view = null;
+        clearFrame(this.id);
+        this.log.info("no viewers; browser sleeping");
+        void view?.stop();
+      }, SLEEP_AFTER_MS);
+    }
   }
 
   /** Coalesce patches: status transitions go out now, the rest at most every 5s. */
@@ -107,7 +139,8 @@ export class StreamSession {
     this.stopped = true;
     if (this.flushTimer) clearTimeout(this.flushTimer);
     if (this.spikeTimer) clearTimeout(this.spikeTimer);
+    if (this.sleepTimer) clearTimeout(this.sleepTimer);
     dropStream(this.id);
-    await Promise.allSettled([this.capture.stop(), this.view.stop(), this.chat?.stop()]);
+    await Promise.allSettled([this.capture.stop(), this.view?.stop(), this.chat?.stop()]);
   }
 }
