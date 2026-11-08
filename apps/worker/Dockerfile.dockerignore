@@ -1,0 +1,8 @@
+# BuildKit picks this up for `docker build -f apps/worker/Dockerfile .`
+**/node_modules
+**/.env
+**/.env*.local
+apps/worker/data
+apps/web/*
+!apps/web/package.json
+.git
