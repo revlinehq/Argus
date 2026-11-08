@@ -9,3 +9,12 @@ dist
 apps/worker/data
 *.log
 .DS_Store
+
+# Secrets — never commit (keep .env.example as the only template)
+.env*
+!.env.example
+.clerk
+.dev.vars*
+*.pem
+*.key
+.git-credentials
