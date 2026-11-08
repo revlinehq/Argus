@@ -73,6 +73,7 @@ function ClipCard({ clip, now, onOpen }: { clip: ClipDoc; now: number; onOpen: (
   const working = clip.status === "pending" || clip.status === "processing";
   return (
     <button
+      id={`clip-${clip._id}`}
       type="button"
       onClick={onOpen}
       className="group flex flex-col overflow-hidden rounded-lg border bg-card text-left outline-none hover:border-foreground/30 focus-visible:ring-3 focus-visible:ring-ring/50"

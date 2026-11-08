@@ -10,6 +10,7 @@ import type { StreamDoc } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
 import { AddStreamForm } from "./add-stream-form";
 import { ClipsGallery } from "./clips-gallery";
+import { Sidebar } from "./sidebar";
 import { StreamTile } from "./stream-tile";
 
 export function Dashboard() {
@@ -47,7 +48,7 @@ export function Dashboard() {
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-30 border-b bg-background">
-        <div className="mx-auto flex h-12 max-w-[1600px] items-center gap-4 px-4">
+        <div className="flex h-12 items-center gap-4 px-4">
           <Link href="/" className="font-semibold tracking-tight">
             Watcher
           </Link>
@@ -57,7 +58,10 @@ export function Dashboard() {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-[1600px] space-y-8 px-4 py-6">{body}</main>
+      <div className="flex">
+        {isAuthenticated && <Sidebar />}
+        <main className="mx-auto min-w-0 max-w-[1600px] flex-1 space-y-8 px-4 py-6">{body}</main>
+      </div>
     </div>
   );
 }

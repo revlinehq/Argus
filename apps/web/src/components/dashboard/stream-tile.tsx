@@ -83,7 +83,7 @@ export function StreamTile({ stream }: { stream: StreamDoc }) {
   }
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border bg-card">
+    <div id={`tile-${stream._id}`} className="flex scroll-mt-16 flex-col overflow-hidden rounded-lg border bg-card">
       {/* Live browser view */}
       <div className="relative aspect-video w-full bg-black">
         <canvas
