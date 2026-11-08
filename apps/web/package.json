@@ -13,23 +13,30 @@
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
   },
   "dependencies": {
+    "@clerk/nextjs": "^6.33.0",
+    "@clerk/themes": "^2.4.57",
+    "class-variance-authority": "^0.7.1",
+    "cn": "^0.5.2",
+    "convex": "^1.27.0",
+    "lucide-react": "^1.70.0",
+    "next": "15.5.29",
+    "radix-ui": "^1.8.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "next": "15.5.29",
-    "@clerk/nextjs": "^6.33.0",
-    "convex": "^1.27.0"
+    "shadcn": "^4.23.0",
+    "sonner": "^2.0.8"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@opennextjs/cloudflare": "^1.9.0",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.5.29",
-    "@eslint/eslintrc": "^3",
-    "@opennextjs/cloudflare": "^1.9.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
     "wrangler": "^4.40.0"
   }
 }

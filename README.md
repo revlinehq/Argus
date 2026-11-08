@@ -40,7 +40,10 @@ npx playwright install chromium
    integration (Configure → Integrations). Then:
    - `npx convex env set CLERK_JWT_ISSUER_DOMAIN https://<your-app>.clerk.accounts.dev`
    - put `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `CLERK_SECRET_KEY` in `apps/web/.env.local`
-     along with `NEXT_PUBLIC_CONVEX_URL`
+     along with `NEXT_PUBLIC_CONVEX_URL` and
+     `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in`, `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up`
+   - (dev shortcut: with no keys, Clerk runs in keyless mode; the claim link
+     appears in the corner of the app)
 3. **Worker.** `apps/worker/.env`: `CONVEX_URL`, `WORKER_SECRET` (same value),
    `WORKER_PORT=8788`, `PUBLIC_WS_URL=ws://localhost:8788`, `BUFFER_SECONDS=300`
 
