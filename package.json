@@ -1,0 +1,18 @@
+{
+  "name": "streamwatcher",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "concurrently -n convex,web,worker -c blue,green,magenta \"npx convex dev\" \"npm run dev -w web\" \"npm run dev -w worker\"",
+    "dev:web": "npm run dev -w web",
+    "dev:worker": "npm run dev -w worker",
+    "typecheck": "tsc -p convex --noEmit && npm run typecheck -w web && npm run typecheck -w worker"
+  },
+  "dependencies": {
+    "convex": "^1.27.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5"
+  }
+}
